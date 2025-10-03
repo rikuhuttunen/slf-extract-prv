@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slf-extract-prv"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "U.N. Owen", email = "void@some.where" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "numpy",
+  "scipy",
+  "sleeplab-format",
+  "systole"
+]
+
+[project.urls]
+Documentation = "https://github.com/U.N. Owen/slf-extract-prv#readme"
+Issues = "https://github.com/U.N. Owen/slf-extract-prv/issues"
+Source = "https://github.com/U.N. Owen/slf-extract-prv"
+
+[tool.hatch.version]
+path = "src/slf_extract_prv/__about__.py"
+
+[tool.hatch.envs.types]
+extra-dependencies = [
+  "mypy>=1.0.0",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/slf_extract_prv tests}"
+
+[tool.coverage.run]
+source_pkgs = ["slf_extract_prv", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/slf_extract_prv/__about__.py",
+]
+
+[tool.coverage.paths]
+slf_extract_prv = ["src/slf_extract_prv", "*/slf-extract-prv/src/slf_extract_prv"]
+tests = ["tests", "*/slf-extract-prv/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]

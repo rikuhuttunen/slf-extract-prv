@@ -12,8 +12,23 @@
 
 ## Installation
 
+For now, clone the repository and install from there with pip:
+
 ```console
-pip install slf-extract-prv
+git clone https://github.com/rikuhuttunen/slf-extract-prv
+cd slf-extract-prv
+pip install -e .
+```
+
+## Extraction of PPG peaks and interpolation of IBI time series
+
+The following command will extract the PPG peaks, interpolate the inter-beat-interval series, and save both to sleeplab-format sample arrays for all subjects in the dataset.
+
+```console
+python src/slf-extract-prv/extract_ibis.py --ds-dir <SLF DATASETDIRECTORY> \
+    --ppg-key <THE NAME OF PPG SIGNAL> \
+    --fs-interp <THE SAMPLING FREQUENCY OF THE INTERPOLATED IBI TIMESERIES> \
+    --savedir <OPTIONAL SAVE DIRECTORY FOR THE PEAKS AND IBIS. IF NOT GIVEN, WILL SAVE IN THE SOURCE DATASET>
 ```
 
 ## License

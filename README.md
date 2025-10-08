@@ -25,7 +25,7 @@ pip install -e .
 The following command will extract the PPG peaks, interpolate the inter-beat-interval series, and save both to sleeplab-format sample arrays for all subjects in the dataset.
 
 ```console
-python src/slf-extract-prv/extract_ibis.py --ds-dir <SLF DATASETDIRECTORY> \
+python src/slf_extract_prv/extract_ibis.py --ds-dir <SLF DATASETDIRECTORY> \
     --ppg-key <THE NAME OF PPG SIGNAL> \
     --fs-interp <THE SAMPLING FREQUENCY OF THE INTERPOLATED IBI TIMESERIES> \
     --savedir <OPTIONAL SAVE DIRECTORY FOR THE PEAKS AND IBIS. IF NOT GIVEN, WILL SAVE IN THE SOURCE DATASET>

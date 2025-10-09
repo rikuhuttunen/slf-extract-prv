@@ -18,7 +18,7 @@ def extract_and_save(
         ppg_key: str = 'Pleth_64Hz',
         fs_interp: float = 5.0,
         peak_detection_method: str = 'msptd',
-        peak_detection_window_length: int = 60,
+        peak_detection_window_length: float = 60.0,
         peak_detection_overlap: float = 0.2,
         savedir: Path | None = None) -> None:
     """Extract PPG peaks and interpolate the inter-beat interval time series with given sampling frequency.
@@ -116,6 +116,10 @@ def parse_arguments():
         help='Optional save root directory. By default, the results are saved within the SLF dataset')
     parser.add_argument('--peak-detection-method', type=str, default='msptd',
         help='The method argument for systole.detection.ppg_peaks')
+    parser.add_argument('--peak-detection-window-length', type=float, default=60.0,
+        help='The length of window used for peak detection')
+    parser.add_argument('--peak-detection-overlap', type=float, default=0.2,
+        help='The overlap of consecutive peak detection windows as fraction between 0.0 and 1.0')
 
     return parser.parse_args()
 

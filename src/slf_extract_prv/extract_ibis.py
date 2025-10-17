@@ -1,10 +1,12 @@
 import argparse
+import json
 import logging
 import numpy as np
 import sleeplab_format as slf
 
 from pathlib import Path
 from scipy.interpolate import interp1d
+from sleeplab_format.extractor.preprocess import cheby2_filtfilt
 from systole.correction import correct_peaks
 from systole.detection import ppg_peaks
 from tqdm import tqdm
@@ -20,6 +22,9 @@ def extract_and_save(
         peak_detection_method: str = 'msptd',
         peak_detection_window_length: int = 60,
         peak_detection_overlap: float = 0.2,
+        peak_correction: bool = True,
+        lp_cutoff: float | None = None,
+        hp_cutoff: float | None = None,
         savedir: Path | None = None) -> None:
     """Extract PPG peaks and interpolate the inter-beat interval time series with given sampling frequency.
     
@@ -29,18 +34,41 @@ def extract_and_save(
     logger.info(f'Reading dataset from {ds_dir}...')
     ds = slf.reader.read_dataset(ds_dir, include_annotations=False)
 
+    if savedir is not None:
+        # If savedir is given, save the results to a new dataset with a different name
+        new_ds_name = f'{ds.name}_extract_ibis'
+        save_ds_dir = savedir / new_ds_name
+        save_ds_dir.mkdir(exist_ok=True, parents=True)
+        with open(ds_dir / 'metadata.json', 'r') as src_meta_file:
+            metadata = json.load(src_meta_file)
+
+        metadata['name'] = new_ds_name
+        with open(save_ds_dir / 'metadata.json', 'w') as dst_meta_file:
+            json.dump(metadata, dst_meta_file, indent=2)
+
     for series in ds.series.values():
         logger.info(f'Extracting PPG peaks and interpolating IBIs for series {series.name}...')
         for subj in tqdm(series.subjects.values()):
             try:
-                ppg = subj.sample_arrays[ppg_key]
+                ppg_sarr = subj.sample_arrays[ppg_key]
             except KeyError:
                 logger.info(f'Subject {subj.metadata.subject_id}: sample array with key {ppg_key} not found, skipping...')
 
-            ppg_fs = ppg.attributes.sampling_rate
+            ppg = ppg_sarr.values
+            ppg_fs = ppg_sarr.attributes.sampling_rate
+
+
+            # Do optional lowpass and highpass filtering.
+            # NOTE: the peaks will be adjusted to the filtered signal,
+            # thus not corresponding to the original signal anymore.
+            if lp_cutoff is not None:
+                ppg = cheby2_filtfilt(ppg.astype(np.float64), ppg_fs, lp_cutoff, btype='lowpass').astype(np.float32)
+            if hp_cutoff is not None:
+                ppg = cheby2_filtfilt(ppg.astype(np.float64), ppg_fs, hp_cutoff, btype='highpass').astype(np.float32)
+
             try:
-                _, peaks_idx = ppg_peaks(
-                    ppg.values,
+                _, peaks = ppg_peaks(
+                    ppg,
                     ppg_fs,
                     verbose=True,
                     method=peak_detection_method,
@@ -50,30 +78,32 @@ def extract_and_save(
                 logger.info(f'Subject {subj.metadata.subject_id}: skipping due to ValueError: {repr(e)}')
                 continue
 
-            corrected_idx = correct_peaks(peaks_idx, n_iterations=2, verbose=False)
+            if peak_correction:
+                corrected = correct_peaks(peaks, n_iterations=2, verbose=False)
+                peaks = corrected['clean_peaks']
             # ppg_peaks returns peaks in 1000 Hz array of booleans, where peaks are indicated with True.
-            # Transform these 
-            clean_peaks_idx = np.where(corrected_idx['clean_peaks'])[0]
+            # Transform these to peak indices.
+            peaks_idx = np.where(peaks)[0]
 
             # Create an SLF sample array from clean peaks. As a hack, set sampling interval to -1 to indicate uneven sampling
             peak_attributes = slf.models.ArrayAttributes(
                 name=f'{ppg_key}_peaks',
-                start_ts=ppg.attributes.start_ts,
+                start_ts=ppg_sarr.attributes.start_ts,
                 sampling_interval=-1.0,
                 unit='ms'
             )
 
             # Calculate the IBIs and interpolate to the desired sampling frequency
             # TODO: How should we handle physically impossible IBIs
-            ibi_ms = np.diff(clean_peaks_idx)
-            t_ms = np.cumsum(ibi_ms) + clean_peaks_idx[0] - ibi_ms[0]
+            ibi_ms = np.diff(peaks_idx)
+            t_ms = np.cumsum(ibi_ms) + peaks_idx[0] - ibi_ms[0]
             f = interp1d(t_ms, ibi_ms, kind='cubic', fill_value='extrapolate')
-            ppg_len_s = len(ppg.values) / ppg_fs
+            ppg_len_s = len(ppg) / ppg_fs
             t_interp = np.linspace(0, 1000 * ppg_len_s, int(fs_interp * ppg_len_s))
             ibi_interp = f(t_interp)
             ibi_attributes = slf.models.ArrayAttributes(
                 name=f'{ppg_key}_ibi_{int(fs_interp)}_Hz',
-                start_ts=ppg.attributes.start_ts,
+                start_ts=ppg_sarr.attributes.start_ts,
                 sampling_rate=fs_interp,
                 unit='ms'
             )
@@ -82,6 +112,9 @@ def extract_and_save(
                 subject_path = ds_dir / series.name / subj.metadata.subject_id
             else:
                 subject_path = savedir / ds_dir.name / series.name / subj.metadata.subject_id
+                subject_path.mkdir(exist_ok=True, parents=True)
+                # Copy the subject metadata if the results are written in a new SLF dataset
+                slf.writer.write_subject_metadata(subj, subject_path)
 
             # Write the peak indices in milliseconds
             peaks_path = subject_path / peak_attributes.name
@@ -90,7 +123,7 @@ def extract_and_save(
             peaks_attr_path.write_text(
                 peak_attributes.model_dump_json(indent=2, exclude_none=True)
             )
-            np.save(peaks_path / 'data.npy', clean_peaks_idx, allow_pickle=False)
+            np.save(peaks_path / 'data.npy', peaks_idx, allow_pickle=False)
 
             # Write the IBI time series similarly to peaks
             ibi_path = subject_path / ibi_attributes.name
@@ -113,13 +146,19 @@ def parse_arguments():
     parser.add_argument('--fs-interp', type=float, default=5.0,
         help='The sampling frequency of the interpolated inter-beat-interval timeseries')
     parser.add_argument('--savedir', type=Path, default=None,
-        help='Optional save root directory. By default, the results are saved within the SLF dataset')
+        help='Optional root directory for a new SLF dataset. By default, the results are saved within the source dataset')
     parser.add_argument('--peak-detection-method', type=str, default='msptd',
         help='The method argument for systole.detection.ppg_peaks')
     parser.add_argument('--peak-detection-window-length', type=int, default=60,
         help='The length of window used for peak detection in seconds')
     parser.add_argument('--peak-detection-overlap', type=float, default=0.2,
         help='The overlap of consecutive peak detection windows as fraction between 0.0 and 1.0')
+    parser.add_argument('--peak-correction', type=bool, default=True,
+        help='Whether to run systole.correction.correct_peaks')
+    parser.add_argument('--lp-cutoff', type=float, default=None,
+        help='Optional cutoff frequency for PPG lowpass filtering')
+    parser.add_argument('--hp-cutoff', type=float, default=None,
+        help='Optional cutoff frequency for PPG highpass filtering')
 
     return parser.parse_args()
 
